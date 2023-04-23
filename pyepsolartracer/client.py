@@ -58,7 +58,7 @@ class EPsolarTracerClient:
         response = self.client.execute(request)
         return response
 
-    def parse_battery_state(self, state)
+    def parse_battery_state(self, state):
         """Returns a list of 1-3 EpBatteryState error codes, or [NORMAL] in case there are no errors"""
         output = []
 
