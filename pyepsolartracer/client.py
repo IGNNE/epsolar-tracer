@@ -5,11 +5,27 @@ from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.mei_message import *
 from pyepsolartracer.registers import registerByName
 
+from enum import Enum
+
 #---------------------------------------------------------------------------#
 # Logging
 #---------------------------------------------------------------------------#
 import logging
 _logger = logging.getLogger(__name__)
+
+# Battery state as reported by the charger, to make things a bit more readable
+EPBatteryState = Enum('EpBatteryState', [
+    'NORMAL',
+    'OVERVOLT',
+    'UNDERVOLT',
+    'UNDERVOLT_DISCONNECT',
+    'OTHER_FAULT',
+    'HOT',
+    'COLD',
+    'INTERNAL_RESISTANCE_ABNORMAL',
+    'RATED_VOLTAGE_WRONG',
+    'INVALID_VALUE'
+])
 
 class EPsolarTracerClient:
     ''' EPsolar Tracer client
@@ -41,6 +57,51 @@ class EPsolarTracerClient:
         request = ReadDeviceInformationRequest (unit = self.unit)
         response = self.client.execute(request)
         return response
+
+    def parse_battery_state(self, state)
+        """Returns a list of 1-3 EpBatteryState error codes, or [NORMAL] in case there are no errors"""
+        output = []
+
+        # hopefully the most common case
+        if state == 0:
+            output.append(EPBatteryState.Normal)
+            return output
+        # else we have errors, so let's decode the register
+
+        # bits 0-3
+        first_val = state & 0xF
+        if first_val == 0:
+            # no error code here
+            pass
+        elif first_val > 4 or first_val < 0:
+            # something went wrong
+            output.append(EPBatteryState.INVALID_VALUE)
+        else:
+            output.append(EPBatteryState[first_val])
+
+        # bits 4-7
+        second_val = (state >> 4) & 0xF
+        if second_val == 0:
+            # no error code here
+            pass
+        elif second_val > 2 or second_val < 0:
+            output.append(EPBatteryState.INVALID_VALUE)
+        else:
+            # + 4 gets us to HOT/COLD in the enum
+            output.append(EPBatteryState[second_val + 4])
+
+        # bit 8
+        if state & 0x100:
+            output.append(EPBatteryState.INTERNAL_RESISTANCE_ABNORMAL)
+        # bit 15
+        if state & 0x8000:
+            output.append(EPBatteryState.RATED_VOLTAGE_WRONG)
+
+        # somehow, no error was detected, but it's also not 0?
+        if len(output) == 0:
+            output.append(EPBatteryState.INVALID_VALUE)
+
+        return output
 
     def read_input(self, name):
         register = registerByName(name)
