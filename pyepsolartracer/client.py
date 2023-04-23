@@ -64,7 +64,7 @@ class EPsolarTracerClient:
 
         # hopefully the most common case
         if state == 0:
-            output.append(EPBatteryState.Normal)
+            output.append(EPBatteryState.NORMAL)
             return output
         # else we have errors, so let's decode the register
 
