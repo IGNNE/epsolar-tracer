@@ -5,7 +5,7 @@ from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.mei_message import *
 from pyepsolartracer.registers import registerByName
 
-from enum import Enum
+from enum import IntEnum
 
 #---------------------------------------------------------------------------#
 # Logging
@@ -13,8 +13,8 @@ from enum import Enum
 import logging
 _logger = logging.getLogger(__name__)
 
-# Battery state as reported by the charger, to make things a bit more readable
-EPBatteryState = Enum('EpBatteryState', [
+# Battery state flags as reported by the charger, to make things more readable
+EPBatteryState = IntEnum('EpBatteryState', [
     'NORMAL',
     'OVERVOLT',
     'UNDERVOLT',
@@ -25,7 +25,32 @@ EPBatteryState = Enum('EpBatteryState', [
     'INTERNAL_RESISTANCE_ABNORMAL',
     'RATED_VOLTAGE_WRONG',
     'INVALID_VALUE'
-])
+], start=0)
+
+
+#  Charger state flags as reported by the charger
+# "RUNNING"/"NORMAL" is replaced by 
+EPChargerState = IntEnum('EPChargerState', [
+    'CHARGE_STOP',
+    'CHARGE_FLOAT',
+    'CHARGE_BOOST',
+    'CHARGE_EQUALIZE',
+    'STANDBY',
+    'FAULT',
+    'SHORT_PV'
+    'SHORT_LOAD_FET',
+    'SHORT_LOAD',
+    'OVERCURRENT_LOAD',
+    'OVERCURRENT_INPUT',
+    'SHORT_ANTIREVERSE',
+    'SHORT_CHARGING_OR_ANTIREVERSE',
+    'SHORT_CHARGING_FET',
+    'INPUT_NOT_CONNECTED',
+    'INPUT_OVERVOLT',
+    'INPUT_VOLTAGE_ERROR',
+    'INVALID_VALUE'
+], start=0)
+
 
 class EPsolarTracerClient:
     ''' EPsolar Tracer client
@@ -59,7 +84,8 @@ class EPsolarTracerClient:
         return response
 
     def parse_battery_state(self, state):
-        """Returns a list of 1-3 EpBatteryState error codes, or [NORMAL] in case there are no errors"""
+        """Returns a list of 1-3 EPChargerState error codes, or [NORMAL] in case there are no errors"""
+
         output = []
 
         # hopefully the most common case
@@ -67,6 +93,10 @@ class EPsolarTracerClient:
             output.append(EPBatteryState.NORMAL)
             return output
         # else we have errors, so let's decode the register
+
+        # if the value is larger than the register length
+        if state & 0xFFFF != 0:
+            output.append(EPBatteryState.INVALID_VALUE)
 
         # bits 0-3
         first_val = state & 0xF
@@ -77,8 +107,7 @@ class EPsolarTracerClient:
             # something went wrong
             output.append(EPBatteryState.INVALID_VALUE)
         else:
-            output.append(EPBatteryState[first_val])
-
+            output.append(EPBatteryState(first_val))
         # bits 4-7
         second_val = (state >> 4) & 0xF
         if second_val == 0:
@@ -88,8 +117,7 @@ class EPsolarTracerClient:
             output.append(EPBatteryState.INVALID_VALUE)
         else:
             # + 4 gets us to HOT/COLD in the enum
-            output.append(EPBatteryState[second_val + 4])
-
+            output.append(EPBatteryState(second_val + 4))
         # bit 8
         if state & 0x100:
             output.append(EPBatteryState.INTERNAL_RESISTANCE_ABNORMAL)
@@ -100,6 +128,63 @@ class EPsolarTracerClient:
         # somehow, no error was detected, but it's also not 0?
         if len(output) == 0:
             output.append(EPBatteryState.INVALID_VALUE)
+
+        return output
+
+    def parse_charger_state(self, state):
+        """Returns a list of EPChargerState codes:
+
+        First is always charging state (or INVALID_VALUE); any following EPChargerStates are non-normal states / error codes
+        """
+
+        output = []
+
+        # if the value is larger than the register length
+        if state & (~0xFFFF) != 0:
+            output.append(EPChargerState.INVALID_VALUE)
+
+        # bit 2-3: charging state
+        charging_state = (state & (3 << 2)) >> 2
+        output.append(EPChargerState(charging_state))
+        # bit 0: running/standby
+        if state & 1 == 0:
+            output.append(EPChargerState.STANDBY)
+        # bit 1: general fault
+        if state & (1 << 1) == 1:
+            output.append(EPChargerState.FAULT)
+        # bit 4: pv short
+        if state & (1 << 4) == 1:
+            output.append(EPChargerState.SHORT_PV)
+        # bit 7: load mosfet short - how is this different from load short? internal error?
+        if state & (1 << 7) == 1:
+            output.append(EPChargerState.SHORT_LOAD_FET)
+        # bit 8: load short
+        if state & (1 << 8) == 1:
+            output.append(EPChargerState.SHORT_LOAD)
+        # bit 9: load oc
+        if state & (1 << 9) == 1:
+            output.append(EPChargerState.OVERCURRENT_LOAD)
+        # bit 10: input oc
+        if state & (1 << 10) == 1:
+            output.append(EPChargerState.OVERCURRENT_INPUT)
+        # bit 11: anti-reverse-fet short
+        if state & (1 << 11) == 1:
+            output.append(EPChargerState.SHORT_ANTIREVERSE)
+        # bit 12: anti-reverse-fet short or(?) charging fet short
+        # TODO: figure out how this works for our controller, and merge 11-13 with some logic?
+        if state & (1 << 12) == 1:
+            output.append(EPChargerState.SHORT_CHARGING_OR_ANTIREVERSE)
+        # bit 13: charging mostfet short
+        if state & (1 << 13) == 1:
+            output.append(EPChargerState.SHORT_CHARGING_FET)
+        # bit 14-15: input voltage status
+        input_voltage_state = (state & (3 << 14)) >> 14
+        if input_voltage_state == 0:
+            # normal
+            pass
+        else:
+            # map input voltage errors 1-3 to INPUT_NOT_CONNECTED/INPUT_OVERVOLT/INPUT_VOLTAGE_ERROR
+            output.append(EPChargerState(EPChargerState.INPUT_NOT_CONNECTED - 1))
 
         return output
 
