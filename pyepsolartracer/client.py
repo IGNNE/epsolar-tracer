@@ -37,7 +37,7 @@ EPChargerState = IntEnum('EPChargerState', [
     'CHARGE_EQUALIZE',
     'STANDBY',
     'FAULT',
-    'SHORT_PV'
+    'SHORT_PV',
     'SHORT_LOAD_FET',
     'SHORT_LOAD',
     'OVERCURRENT_LOAD',
@@ -95,7 +95,7 @@ class EPsolarTracerClient:
         # else we have errors, so let's decode the register
 
         # if the value is larger than the register length
-        if state & 0xFFFF != 0:
+        if state & (~0xFFFF) != 0:
             output.append(EPBatteryState.INVALID_VALUE)
 
         # bits 0-3
@@ -150,32 +150,32 @@ class EPsolarTracerClient:
         if state & 1 == 0:
             output.append(EPChargerState.STANDBY)
         # bit 1: general fault
-        if state & (1 << 1) == 1:
+        if state & (1 << 1) != 0:
             output.append(EPChargerState.FAULT)
         # bit 4: pv short
-        if state & (1 << 4) == 1:
+        if state & (1 << 4) != 0:
             output.append(EPChargerState.SHORT_PV)
         # bit 7: load mosfet short - how is this different from load short? internal error?
-        if state & (1 << 7) == 1:
+        if state & (1 << 7) != 0:
             output.append(EPChargerState.SHORT_LOAD_FET)
         # bit 8: load short
-        if state & (1 << 8) == 1:
+        if state & (1 << 8) != 0:
             output.append(EPChargerState.SHORT_LOAD)
         # bit 9: load oc
-        if state & (1 << 9) == 1:
+        if state & (1 << 9) != 0:
             output.append(EPChargerState.OVERCURRENT_LOAD)
         # bit 10: input oc
-        if state & (1 << 10) == 1:
+        if state & (1 << 10) != 0:
             output.append(EPChargerState.OVERCURRENT_INPUT)
         # bit 11: anti-reverse-fet short
-        if state & (1 << 11) == 1:
+        if state & (1 << 11) != 0:
             output.append(EPChargerState.SHORT_ANTIREVERSE)
         # bit 12: anti-reverse-fet short or(?) charging fet short
         # TODO: figure out how this works for our controller, and merge 11-13 with some logic?
-        if state & (1 << 12) == 1:
+        if state & (1 << 12) != 0:
             output.append(EPChargerState.SHORT_CHARGING_OR_ANTIREVERSE)
         # bit 13: charging mostfet short
-        if state & (1 << 13) == 1:
+        if state & (1 << 13) != 0:
             output.append(EPChargerState.SHORT_CHARGING_FET)
         # bit 14-15: input voltage status
         input_voltage_state = (state & (3 << 14)) >> 14
@@ -184,7 +184,8 @@ class EPsolarTracerClient:
             pass
         else:
             # map input voltage errors 1-3 to INPUT_NOT_CONNECTED/INPUT_OVERVOLT/INPUT_VOLTAGE_ERROR
-            output.append(EPChargerState(EPChargerState.INPUT_NOT_CONNECTED - 1))
+            output.append(EPChargerState(EPChargerState.INPUT_NOT_CONNECTED - 1
+                                            + input_voltage_state))
 
         return output
 
