@@ -21,7 +21,6 @@ classifiers = [
 ]
 urls = { Homepage = "https://github.com/IGNNE/epsolar-tracer" }
 dependencies = [
-  "pip>=23.1.1",
   "pyserial>=3.5.0",
   "pymodbus>=3.2.0"
 ]
